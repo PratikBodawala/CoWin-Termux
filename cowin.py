@@ -17,18 +17,22 @@ import os
 ua = UserAgent()
 scheduler = BlockingScheduler()
 
-def line_break(): print("-"*25)
+
+def line_break(): print("-" * 25)
+
 
 def clear_screen(): os.system("clear")
 
-class CoWinBook():
 
-    def __init__(self,mobile_no,pincode,age,dose):
+class CoWinBook:
+
+    def __init__(self, mobile_no, pincode, dose):
         self.mobile_no = str(mobile_no)
-        self.pincode = pincode # Area Pincode
+        self.pincode = pincode  # Area Pincode
         self.center_id = []  # Selected Vaccination Centers
         self.user_id = []  # Selected Users for Vaccination 
-
+        self.age = None
+        self.slot = None
         # Vaccination Center id and Session id for Slot Booking
         self.vacc_center = None
         self.vacc_session = None
@@ -36,28 +40,25 @@ class CoWinBook():
         # Dose 1 or Dose 2 ( default : 1)
         self.dose = dose
 
-        # User Age 18 or 45
-        self.age =  age
-
         # Request Session
-        self.session =  requests.Session() 
+        self.session = requests.Session()
 
         # Data for sending request
-        self.data = {} 
+        self.data = {}
 
-        # Token Recieved from CoWIN
+        # Token Received from CoWIN
         self.bearerToken = None  # Session Token
 
         self.todayDate = datetime.now().strftime("%d-%m-%Y")
-      
+
         # Login and Save Token in file( filename same as mobile no)
         self.getSession()
 
         # Selecting Center and User
         self.setup_details()
 
-    # Set Header in self.session = requests.Session()
     def set_headers(self):
+        """Set Header in self.session = requests.Session()"""
         self.session.headers.update({
             'User-Agent': ua.random,
             'Accept': 'application/json, text/plain, */*',
@@ -69,81 +70,77 @@ class CoWinBook():
             'TE': 'Trailers',
         })
 
-    # returning self.data 
     def get_data(self):
         return json.dumps(self.data).encode('utf-8')
 
-    # Save Token after login to CoWIN
     def putSession(self):
+        """Save Token after login to CoWIN"""
         with open(self.mobile_no, "w") as f:
             f.write(self.bearerToken)
 
-    # Get Token saved in file for relogin and use
     def getSession(self):
+        """Get Token saved in file for relogin and use"""
         self.set_headers()
         try:
             with open(self.mobile_no, "r") as f:
                 self.bearerToken = f.read()
             self.session.headers.update({
-                    'Authorization': 'Bearer {}'.format(self.bearerToken)
-                })
+                'Authorization': 'Bearer {}'.format(self.bearerToken)
+            })
             self.session.get('https://cdn-api.co-vin.in/api/v2/appointment/beneficiaries').json()
-        except (FileNotFoundError,json.decoder.JSONDecodeError):
+        except (FileNotFoundError, json.decoder.JSONDecodeError):
             self.login_cowin()
-            
 
-    # Login to selfregistration.cowin.gov.in/
     def login_cowin(self):
-
+        """Login to selfregistration.cowin.gov.in/"""
         self.data = {
-        "secret":"U2FsdGVkX1+gGN13ULaCVtLSWmsyZwAdXXTIAvLQp2HOXrIBCcq0yyOZQqzzfiFiEYs7KoAOTK2j4qPF/sEVww==",
-        "mobile": self.mobile_no
-            }
+            "secret": "U2FsdGVkX1+gGN13ULaCVtLSWmsyZwAdXXTIAvLQp2HOXrIBCcq0yyOZQqzzfiFiEYs7KoAOTK2j4qPF/sEVww==",
+            "mobile": self.mobile_no
+        }
 
-        response = self.session.post('https://cdn-api.co-vin.in/api/v2/auth/generateMobileOTP',data=self.get_data())
+        response = self.session.post('https://cdn-api.co-vin.in/api/v2/auth/generateMobileOTP', data=self.get_data())
 
         otpSha265 = self.get_otp()
 
         txn_id = response.json()['txnId']
 
         self.data = {
-                        "otp":otpSha265,
-                        "txnId": txn_id
-                                    }
-        
-        response = self.session.post('https://cdn-api.co-vin.in/api/v2/auth/validateMobileOtp',data=self.get_data())
-        
+            "otp": otpSha265,
+            "txnId": txn_id
+        }
+
+        response = self.session.post('https://cdn-api.co-vin.in/api/v2/auth/validateMobileOtp', data=self.get_data())
+
         self.bearerToken = response.json()['token']
 
         self.session.headers.update({
             'Authorization': 'Bearer {}'.format(self.bearerToken)
         })
-        self.putSession() 
+        self.putSession()
 
-    # Request for OTP 
     def get_otp(self):
-         
+        """Request for OTP """
         print("OTP Sent 📲 ... ")
 
         otp = ""
 
-        try:            
+        try:
             curr_msg = self.get_last_msg().get("body")
 
             for i in reversed(range(15)):
-                
+
                 last_msg = self.get_last_msg().get("body")
-                
+
                 print(f'Waiting for OTP {i} sec')
                 sys.stdout.write("\033[F")
 
                 if curr_msg != last_msg and "cowin" in last_msg.lower():
-                    otp = re.findall("(\d{6})",last_msg)[0]
-                    print("\nOTP Recieved : ",otp)
+                    otp = re.findall("(\d{6})", last_msg)[0]
+                    print("\nOTP Recieved : ", otp)
                     break
 
                 time.sleep(2)
-            
+
         # Press Ctrl + C to Enter OTP Manually
         except KeyboardInterrupt:
             otp = input("\nEnter OTP Manually : ")
@@ -152,23 +149,24 @@ class CoWinBook():
 
         return hashlib.sha256(otp.encode('utf-8')).hexdigest()
 
-    # Get Mobile last msg for otp Checking  
     def get_last_msg(self):
+        """Get Mobile last msg for otp Checking  """
         msg = subprocess.Popen(
-                                'termux-sms-list -l 1',
-                                stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,shell=True).communicate()[0].decode('utf-8')
+            'termux-sms-list -l 1',
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, shell=True).communicate()[0].decode('utf-8')
         try:
             msg = json.loads(msg)[0]
             return msg
         except KeyError:
             raise Exception("Install Termux:API 0.31 Version  ")
 
-    # Request for Current Slot Deatails ( Private Request )
     def request_slot(self):
+        """Request for Current Slot Details ( Private Request )"""
         todayDate = datetime.now().strftime("%d-%m-%Y")
-        response = self.session.get(f'https://cdn-api.co-vin.in/api/v2/appointment/sessions/calendarByPin?pincode={self.pincode}&date={todayDate}')
+        response = self.session.get(
+            f'https://cdn-api.co-vin.in/api/v2/appointment/sessions/calendarByPin?pincode={self.pincode}&date={todayDate}')
 
         if response.ok:
             self.check_slot(response.json())
@@ -177,28 +175,28 @@ class CoWinBook():
             self.login_cowin()
             self.request_slot()
 
-    # Check Slot availability 
-    def check_slot(self,response):
+    def check_slot(self, response):
+        """Check Slot availability"""
+        for center in response.get('centers', []):
 
-        for center in response.get('centers',[]):
-            
             for session in center.get('sessions')[1:]:  # Starting from Next Day
-                
+
                 self.vacc_center = center.get('center_id')
                 self.vacc_session = session.get("session_id")
-
+                self.slot = session.get('slots')[0]
                 center_name = center.get('name')
                 capacity = session.get('available_capacity')
                 session_date = session.get('date')
-                
+
                 vaccine_name = session.get('vaccine')
 
-                if session.get('min_age_limit') == self.age and capacity > 1 and center.get('center_id') in  self.center_id:
+                if self.age <= session.get('min_age_limit') and capacity > 0 and center.get(
+                        'center_id') in self.center_id:
                     MSG = f'💉 {capacity} #{vaccine_name} / {session_date} / {center_name} 📍{self.pincode}'
 
                     # Send Notification via Termux:API App
                     os.system(f"termux-notification --content '{MSG}'")
-                
+
                     BOOKED = self.book_slot()
                     if BOOKED:
                         scheduler.shutdown(wait=False)
@@ -213,7 +211,7 @@ class CoWinBook():
     def get_captcha(self):
 
         model = "eyJNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExMUUxMTFFMTFFaIjoiMiIsIk1MTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMTFFMTFFMTFFMTFFMTFFMTFFMTExMUUxMUUxMUUxMUUxMUUxMUUxMTExMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaIjoiMyIsIk1MTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFaTUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFaIjoiNCIsIk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMTExMUUxMTFFMTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTExRTExRTExRTExRTExRWiI6IjUiLCJNTExRTExRTExRTExRTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExRTExRTExRWiI6IjYiLCJNTExRTExRTExMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTExRTExRTExRTExMUUxMUUxMUUxMUUxMUVpNTExMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExMTFFMTFFMTFFMTFFMTFFMTExRTExMUUxMUUxMUUxMTFFaIjoiNyIsIk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExMUUxMUUxMUUxMUUxMTExMUUxMUUxMUUxMUUxMTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExMUUxMUUxMUUxMUUxMUUxMUVoiOiI4IiwiTUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExMUVpNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRWiI6IjkiLCJNTExRTExRTExRTExRTExRTExRTExRTExRWk1MTFFMTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMTFFMTExRWiI6InYiLCJNTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMTFFMTFFMTFFMTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRWiI6IloiLCJNTExRTExRTExRTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJkIiwiTUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExMUVoiOiJ4IiwiTUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUVoiOiJNIiwiTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMTFFMTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTExMTFFMTExRTExRTExMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMWk1MTFFMTFFMTFFMTFFMTExRTExMUUxMTFFMTFFaIjoicCIsIk1MTFFMTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFaTUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTExRTExRTExMUUxMTExRTExRTExMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaIjoiZiIsIk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRWiI6IkUiLCJNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRWk1MTFFMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRWiI6Im4iLCJNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJxIiwiTUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExMUVpNTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMTFFMTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFoiOiJ3IiwiTUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJXIiwiTUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJKIiwiTUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJUIiwiTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTExRTExRTExRTExRWk1MTExRTExMTExRTExMUUxMUUxMUUxMUUxMUUxMUVoiOiJCIiwiTUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaIjoiSCIsIk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTExMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFpNTExMWiI6InIiLCJNTExRTExRTExRTExRTExRTExRTExRTExMUUxMUVpNTExRTExMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRWiI6InkiLCJNTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTExMTFFMTFFMTExRTExRTExRTExRTExRTExRTExRTExRWiI6InUiLCJNTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTExRTExRTExRTExRTExRTExMUUxMTExRTExRWk1MTExRTExRTExRTExRTExRTExRTExRWiI6ImoiLCJNTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExRTExMUUxMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRWiI6IlMiLCJNTExMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMTExRTExRTExRTExMUUxMUVoiOiJzIiwiTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJDIiwiTUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUVpNTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFoiOiJHIiwiTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRWiI6ImIiLCJNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMTFFMTFFaIjoiaCIsIk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMWk1MTFFMTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJOIiwiTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTExRTExRTExRTExRTExRTExRTExRTExRTExRWiI6InoiLCJNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTExRTExRWk1MTExaIjoibSIsIk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUVoiOiJYIiwiTUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTExRTExRTExRTExRTExRWk1MTFFMTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExMUUxMUUxMUVoiOiJ0IiwiTUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTExRTExMUUxMUUxMUUxMUUxMUVpNTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTExMTFFMTFFMTFFaIjoiUSIsIk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTExRTExMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTExMUUxMUUxMUUxMUUxMUUxMTFFMTExRTExRTExMUUxMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJnIiwiTUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaIjoiViIsIk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExRTExRTExRWk1MTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaIjoiYSIsIk1MTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFaTUxMTFFMTFFMTFFMTFFMTFFMTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExMUVoiOiJBIiwiTUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUVoiOiJGIiwiTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJVIiwiTUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMTFFMTFFMTFFaTUxMTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFaTUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFaIjoiUiIsIk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVpNTExRTExRTExRTExMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJEIiwiTUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUVpNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTExRTExRTExRWiI6ImMiLCJNTExRTExRTExRTExRTExRTExRTExRTExRTExRTExMUUxMUUxMUUxMUVpNTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUVoiOiJrIiwiTUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExMTExRWk1MTFFMTFFMTFFMTExRTExRTExMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaIjoiSyIsIk1MTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExMUUxMUUxMUUxMUUxMUUxMUUxMTFFaTUxMUUxMUUxMUUxMUUxMUVpNTExRTExMTFFMTFFMTFFaIjoiZSIsIk1MTExRTExRTExRTExRTExRTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTExRTExRTExRTExRTExaIjoiWSIsIk1MTFFMTFFMTExRTExRTExRTExRWk1MTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFMTFFMTFFMTFFMTFFaTUxMUUxMUUxMUUxMUUxMUUxMUUxMUUxMTFFaIjoiUCJ9"
-        
+
         # Send request for Captcha    
         data = '{}'
         response = self.session.post('https://cdn-api.co-vin.in/api/v2/auth/getRecaptcha', data=data)
@@ -221,21 +219,15 @@ class CoWinBook():
         # Get Captcha Data from Json
         svg_data = response.json()['captcha']
 
-
-        soup = BeautifulSoup(svg_data,'html.parser')
+        soup = BeautifulSoup(svg_data, 'html.parser')
 
         model = json.loads(base64.b64decode(model.encode('ascii')))
         CAPTCHA = {}
 
-        for path in soup.find_all('path',{'fill' : re.compile("#")}):
-
-            ENCODED_STRING = path.get('d').upper()
-            INDEX = re.findall('M(\d+)',ENCODED_STRING)[0]
-
-            ENCODED_STRING = re.findall("([A-Z])", ENCODED_STRING)
-            ENCODED_STRING = "".join(ENCODED_STRING)
-
-            CAPTCHA[int(INDEX)] =  model.get(ENCODED_STRING)
+        for path in soup.find_all('path', {'fill': re.compile("#")}):
+            ENCODED_STRING = re.sub(r'[^A-Z]', '', path.get('d').upper())
+            INDEX = re.findall('M(\d+)', ENCODED_STRING)[0]
+            CAPTCHA[int(INDEX)] = model.get(ENCODED_STRING)
 
         CAPTCHA = sorted(CAPTCHA.items())
         CAPTCHA_STRING = ''
@@ -247,22 +239,22 @@ class CoWinBook():
 
     # Book Slot for Vaccination
     def book_slot(self):
-        
+
         captcha = self.get_captcha()
 
         self.data = {
-            "center_id":self.vacc_center ,
-            "session_id":self.vacc_session,
-            "beneficiaries":self.user_id,
-            "slot":"09:00AM-11:00AM",
+            "center_id": self.vacc_center,
+            "session_id": self.vacc_session,
+            "beneficiaries": self.user_id,
+            "slot": self.slot,
             "captcha": captcha,
             "dose": self.dose
-            }
+        }
 
-        response = self.session.post('https://cdn-api.co-vin.in/api/v2/appointment/schedule',data=self.get_data())
+        response = self.session.post('https://cdn-api.co-vin.in/api/v2/appointment/schedule', data=self.get_data())
 
-        status =  response.status_code
-        
+        status = response.status_code
+
         if status == 200:
             print("🏥 Appointment scheduled successfully! 🥳 ")
             return True
@@ -288,23 +280,23 @@ class CoWinBook():
     def select_center(self):
 
         response = self.session.get(
-            'https://cdn-api.co-vin.in/api/v2/appointment/sessions/calendarByPin?pincode={}&date={}'.format(self.pincode,self.todayDate),
-            ).json()
+            'https://cdn-api.co-vin.in/api/v2/appointment/sessions/calendarByPin?pincode={}&date={}'.format(
+                self.pincode, self.todayDate),
+        ).json()
 
         CENTERS = {}
         INDEX_S = []
 
         print(f"Select Vaccination Center ({self.pincode}) 💉 \n")
         counter = 1
-        for center in response.get('centers',[]):
+        for center in response.get('centers', []):
             for session in center.get('sessions'):
-                if session.get('min_age_limit') == self.age:
+                if self.age < session.get('min_age_limit'):
                     print(f'{counter} : {center.get("name")}')
                     CENTERS[counter] = center.get('center_id')
                     INDEX_S.append(counter)
                     counter += 1
                     break
-            
 
         print()
         line_break()
@@ -321,12 +313,12 @@ class CoWinBook():
         input_index = input("Enter Index's : ")
 
         if input_index != '':
-            INDEX_S = re.findall("(\d)",input_index)
-            
+            INDEX_S = re.findall("(\d)", input_index)
+
         clear_screen()
 
         CENTER_ID = []
-        for  index in INDEX_S:
+        for index in INDEX_S:
             if CENTERS.get(int(index)):
                 CENTER_ID.append(CENTERS.get(int(index)))
         self.center_id = CENTER_ID
@@ -341,7 +333,7 @@ class CoWinBook():
 
         print(f"Select User for Vaccination 👩‍👦‍👦 \n")
 
-        if not response.get('beneficiaries',[]):
+        if not response.get('beneficiaries', []):
             print("No user added in beneficiaries")
             return
 
@@ -352,7 +344,7 @@ class CoWinBook():
                 USERS[counter] = user.get('beneficiary_reference_id')
                 INDEX_S.append(counter)
                 counter += 1
-
+                self.age = datetime.now().year - int(user.get('birth_year'))
         print()
         line_break()
         print("""
@@ -368,8 +360,8 @@ class CoWinBook():
         input_index = input("Enter Index's : ")
 
         if input_index != '':
-            INDEX_S = re.findall("(\d)",input_index)
-            
+            INDEX_S = re.findall("(\d)", input_index)
+
         clear_screen()
 
         USER_ID = []
@@ -379,23 +371,22 @@ class CoWinBook():
 
         self.user_id = USER_ID
 
- 
-def main(mobile_no,pincode, age = 18,dose = 1,time = 1,fast = None):
 
+def main(mobile_no, pincode, dose=1, time=1, fast=None):
     global cowin
-    cowin = CoWinBook(mobile_no,pincode,age,dose)
+    cowin = CoWinBook(mobile_no, pincode, dose)
 
-    print(f" 📍 {pincode} 💉 {age}+ ⌛️ {time} Minute")
+    print(f" 📍 {pincode} 💉 {cowin.age} ⌛️ {time} Minute")
 
     try:
-        if fast:cowin.book_now()
-    except SchedulerNotRunningError: return
+        if fast: cowin.book_now()
+    except SchedulerNotRunningError:
+        return
 
-    scheduler.add_job(cowin.book_now, 'cron',hour = "8-21", minute = f'0-59/{time}')
+    scheduler.add_job(cowin.book_now, 'cron', hour="8-21", minute=f'0-59/{time}')
 
 
 if __name__ == '__main__':
-
     clear_screen()
 
     fire.Fire(main)
@@ -404,4 +395,3 @@ if __name__ == '__main__':
     line_break()
 
     scheduler.start()
-
